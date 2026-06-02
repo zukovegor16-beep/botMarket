@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -7,6 +8,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiohttp import web
 
 # ---------- НАСТРОЙКИ ----------
 BOT_TOKEN = '8835701146:AAEbcx3j76Udnek14zMBwd7QFUfuveBnX4I'
@@ -301,6 +303,18 @@ async def main():
         text += f'Бюджет: {budget}\n'
         text += f'Сфера: {business}\n'
         return text
+
+    # Запуск веб-сервера параллельно с polling
+    app = web.Application()
+    async def health(request):
+        return web.Response(text="OK")
+    app.router.add_get('/', health)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
 
     await dp.start_polling(bot)
 
