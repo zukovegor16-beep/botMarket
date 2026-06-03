@@ -11,7 +11,7 @@ from aiogram.enums import ParseMode
 from aiohttp import web
 
 # ---------- НАСТРОЙКИ ----------
-BOT_TOKEN = '8835701146:AAGnGHHM7rbwjCgVucnNIk3PbUqWS9YeQEE'
+BOT_TOKEN = '8835701146:AAEbcx3j76Udnek14zMBwd7QFUfuveBnX4I'
 CHANNEL_ID = -1004274610789
 
 SOCIALS = {
@@ -191,9 +191,8 @@ async def main():
         if not selected:
             await callback.answer('Выберите хотя бы одну услугу!', show_alert=True)
             return
-        # Удаляем сообщение с выбором услуг
-        await callback.message.delete()
-        # Начинаем уточнение (используем chat.id для отправки)
+        # Редактируем текущее сообщение, убирая кнопки
+        await callback.message.edit_text('Вы выбрали услуги. Сейчас зададим уточняющие вопросы.')
         await process_next_service(callback.message.chat.id, bot, state)
 
     async def process_next_service(chat_id: int, bot: Bot, state: FSMContext):
@@ -201,7 +200,6 @@ async def main():
         services = data['selected_services']
         index = data.get('service_index', 0)
         if index >= len(services):
-            # Все услуги обработаны – переходим к бюджету
             await bot.send_message(chat_id, 'Выберите подходящий бюджет:', reply_markup=budget_keyboard())
             await state.set_state(Form.budget)
             return
@@ -214,14 +212,14 @@ async def main():
             await bot.send_message(chat_id, f'Опишите подробнее: <b>{service}</b>')
             await state.set_state(Form.await_description)
 
-    # --- Сбор ссылки (количественные услуги) ---
+    # --- Сбор ссылки ---
     @dp.message(Form.await_link)
     async def process_link(message: types.Message, state: FSMContext):
         await state.update_data(temp_link=message.text.strip())
         await message.answer('Выберите тип:', reply_markup=boost_types_keyboard())
         await state.set_state(Form.await_type)
 
-    # --- Выбор типа накрутки ---
+    # --- Выбор типа ---
     @dp.callback_query(F.data.startswith('boost_'), Form.await_type)
     async def process_type(callback: types.CallbackQuery, state: FSMContext):
         await state.update_data(temp_type=callback.data.replace('boost_', ''))
@@ -247,7 +245,7 @@ async def main():
         await state.update_data(details=details, service_index=data['service_index'] + 1)
         await process_next_service(message.chat.id, bot, state)
 
-    # --- Описание обычной услуги ---
+    # --- Описание ---
     @dp.message(Form.await_description)
     async def process_description(message: types.Message, state: FSMContext):
         data = await state.get_data()
@@ -263,7 +261,7 @@ async def main():
         await callback.message.edit_text('Введите вашу сферу деятельности (например, "мебель"):')
         await state.set_state(Form.business)
 
-    # --- Сфера деятельности ---
+    # --- Сфера ---
     @dp.message(Form.business)
     async def process_business(message: types.Message, state: FSMContext):
         data = await state.get_data()
@@ -290,7 +288,7 @@ async def main():
         text += f'Бюджет: {budget}\nСфера: {business}\n'
         return text
 
-    # --- Веб-сервер для поддержания работы на Render ---
+    # --- Веб-сервер для Render ---
     app = web.Application()
     async def health(request):
         return web.Response(text="OK")
