@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import os
-import sys
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -154,7 +153,6 @@ async def main():
         BotCommand(command="start", description="Жми 👈 для просмотра услуг")
     ], scope=BotCommandScopeDefault())
 
-    # Надёжный сброс вебхука
     await bot.delete_webhook(drop_pending_updates=True)
     await asyncio.sleep(1)
 
@@ -168,7 +166,7 @@ async def main():
         await state.set_state(Form.social)
 
     # --- Выбор соцсети ---
-    @dp.callback_query(F.data.startswith('social_'), Form.social)
+    @dp.callback_query(F.data.startswith('social_'))
     async def process_social(callback: types.CallbackQuery, state: FSMContext):
         social_key = callback.data.split('_')[1]
         await state.update_data(social=social_key, selected_services=[], details={}, service_index=0)
@@ -179,21 +177,21 @@ async def main():
         await state.set_state(Form.services)
 
     # --- Переключение услуг ---
-    @dp.callback_query(F.data.startswith('toggle_'), Form.services)
+    @dp.callback_query(F.data.startswith('toggle_'))
     async def toggle_service(callback: types.CallbackQuery, state: FSMContext):
-        service_name = callback.data.replace('toggle_', '')
         data = await state.get_data()
+        service_name = callback.data.replace('toggle_', '')
         selected = set(data.get('selected_services', []))
         if service_name in selected:
             selected.remove(service_name)
         else:
             selected.add(service_name)
         await state.update_data(selected_services=list(selected))
-        social_key = data['social']
+        social_key = data.get('social')
         await callback.message.edit_reply_markup(reply_markup=services_keyboard(selected, social_key))
 
     # --- Завершение выбора услуг ---
-    @dp.callback_query(F.data == 'services_done', Form.services)
+    @dp.callback_query(F.data == 'services_done')
     async def services_done(callback: types.CallbackQuery, state: FSMContext):
         data = await state.get_data()
         selected = data.get('selected_services', [])
@@ -244,7 +242,7 @@ async def main():
         await state.set_state(Form.await_type)
 
     # --- Выбор типа ---
-    @dp.callback_query(F.data.startswith('boost_'), Form.await_type)
+    @dp.callback_query(F.data.startswith('boost_'))
     async def process_type(callback: types.CallbackQuery, state: FSMContext):
         await state.update_data(temp_type=callback.data.replace('boost_', ''))
         await callback.message.edit_text('Введите количество:')
@@ -281,7 +279,7 @@ async def main():
         await process_next_service(message.chat.id, bot, state)
 
     # --- Бюджет ---
-    @dp.callback_query(F.data.startswith('budget_'), Form.budget)
+    @dp.callback_query(F.data.startswith('budget_'))
     async def process_budget(callback: types.CallbackQuery, state: FSMContext):
         await state.update_data(budget=callback.data.replace('budget_', ''))
         await callback.message.edit_text('Введите вашу сферу деятельности (например, "мебель"):')
@@ -349,13 +347,8 @@ async def main():
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
-    # Запуск polling с восстановлением
-    while True:
-        try:
-            await dp.start_polling(bot)
-        except Exception as e:
-            logging.error(f"Polling error: {e}")
-            await asyncio.sleep(5)
+    # Запуск polling
+    await dp.start_polling(bot)
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
