@@ -165,20 +165,15 @@ async def main():
         )
         await state.set_state(Form.social)
 
+    # Выбор соцсети – редактируем это же сообщение
     @dp.callback_query(F.data.startswith('social_'))
     async def process_social(callback: types.CallbackQuery, state: FSMContext):
         social_key = callback.data.split('_')[1]
         await state.update_data(social=social_key, selected_services=[], details={}, service_index=0)
 
-        # Безопасно удаляем сообщение (если не получится – не страшно)
-        try:
-            await callback.message.delete()
-        except Exception:
-            pass
-
-        await bot.send_message(
-            chat_id=callback.message.chat.id,
-            text=f'Выбрана платформа: <b>{SOCIALS[social_key]["name"]}</b>\nТеперь выберите услуги (можно несколько):',
+        # Редактируем текущее сообщение: убираем список соцсетей, показываем услуги
+        await callback.message.edit_text(
+            f'Выбрана платформа: <b>{SOCIALS[social_key]["name"]}</b>\nТеперь выберите услуги (можно несколько):',
             reply_markup=services_keyboard(set(), social_key)
         )
         await state.set_state(Form.services)
@@ -196,6 +191,7 @@ async def main():
         social_key = data.get('social')
         await callback.message.edit_reply_markup(reply_markup=services_keyboard(selected, social_key))
 
+    # Завершение выбора услуг – редактируем это же сообщение
     @dp.callback_query(F.data == 'services_done')
     async def services_done(callback: types.CallbackQuery, state: FSMContext):
         data = await state.get_data()
@@ -210,15 +206,9 @@ async def main():
         await state.update_data(has_cost=bool(cost), has_quantitative=bool(quantitative),
                                 quantitative=quantitative, cost=cost, details={})
 
-        try:
-            await callback.message.delete()
-        except Exception:
-            pass
-
-        await bot.send_message(
-            chat_id=callback.message.chat.id,
-            text='Вы выбрали услуги. Сейчас зададим уточняющие вопросы.'
-        )
+        # Меняем это же сообщение на подтверждение (кнопки исчезнут)
+        await callback.message.edit_text('Вы выбрали услуги. Сейчас зададим уточняющие вопросы.')
+        # Запускаем цепочку вопросов
         await process_next_service(callback.message.chat.id, bot, state)
 
     async def process_next_service(chat_id: int, bot: Bot, state: FSMContext):
