@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import sys
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -154,7 +155,7 @@ async def main():
         BotCommand(command="start", description="Жми 👈 для просмотра услуг")
     ], scope=BotCommandScopeDefault())
 
-    # Сбрасываем вебхук и непрочитанные обновления для предотвращения конфликта
+    # Сбрасываем вебхук и непрочитанные обновления
     await bot.delete_webhook(drop_pending_updates=True)
 
     @dp.message(Command('start'))
@@ -286,16 +287,15 @@ async def main():
         await callback.message.edit_text('Введите вашу сферу деятельности (например, "мебель"):')
         await state.set_state(Form.business)
 
-    # --- Сфера ---
+    # --- Сфера (финальный шаг) ---
     @dp.message(Form.business)
     async def process_business(message: types.Message, state: FSMContext):
         data = await state.get_data()
         text = format_order(data, message.text.strip(), message.from_user)
         await bot.send_message(GROUP_ID, text)
+        # Отправляем сообщение с кнопкой "Новый расчёт" и сбрасываем состояние
         await message.answer(
-            '<tg-emoji emoji-id="5427009714745517609">✅</tg-emoji> Спасибо! Ваша заявка отправлена.\n'
-            'Мы уже составляем предложение <tg-emoji emoji-id="5431449001532594346">⚡️</tg-emoji>\n'
-            'Хотите рассчитать ещё? Нажмите кнопку ниже.',
+            '✅ Спасибо! Ваша заявка отправлена.\nМы уже составляем предложение ⚡️\nХотите рассчитать ещё? Нажмите кнопку ниже.',
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🔄 Новый расчёт", callback_data="restart")]
             ])
@@ -311,6 +311,16 @@ async def main():
             reply_markup=socials_keyboard()
         )
         await state.set_state(Form.social)
+
+    # --- Обработчик для любых других сообщений (чтобы не застревать) ---
+    @dp.message()
+    async def fallback(message: types.Message, state: FSMContext):
+        current_state = await state.get_state()
+        if current_state is None:
+            await message.answer('Нажмите /start, чтобы начать расчёт.')
+        else:
+            await message.answer('Пожалуйста, следуйте инструкциям. Для нового расчёта нажмите /start.')
+            await state.clear()
 
     def format_order(data: dict, business: str, user: types.User) -> str:
         social = SOCIALS[data['social']]['name']
@@ -333,7 +343,7 @@ async def main():
         text += f'Сфера: {business}\n'
         return text
 
-    # --- Веб-сервер для стабильности на Render ---
+    # --- Веб-сервер для Render ---
     app = web.Application()
     async def health(request):
         return web.Response(text="OK")
@@ -346,8 +356,11 @@ async def main():
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
-    # Запуск polling – один раз, без бесконечного цикла
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    except Exception as e:
+        logging.error(f"Polling stopped: {e}")
+        sys.exit(1)
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
