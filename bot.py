@@ -12,7 +12,7 @@ from aiohttp import web
 
 # ---------- НАСТРОЙКИ (совпадают с Mini App) ----------
 BOT_TOKEN = '8835701146:AAEbcx3j76Udnek14zMBwd7QFUfuveBnX4I'
-GROUP_ID = -5160270721  # ОТРИЦАТЕЛЬНЫЙ ID ГРУППЫ
+GROUP_ID = -1004274610789  # ОТРИЦАТЕЛЬНЫЙ ID ГРУППЫ
 
 SOCIALS = {
     'vk': {
