@@ -167,13 +167,24 @@ async def main():
 
     @dp.callback_query(F.data.startswith('social_'))
     async def process_social(callback: types.CallbackQuery, state: FSMContext):
-        await callback.message.delete()
         social_key = callback.data.split('_')[1]
+        # Для указанных платформ используем редактирование вместо удаления
+        SPECIAL_PLATFORMS = ['vk', 'telegram', 'yandex_direct', 'google_ads']
         await state.update_data(social=social_key, selected_services=[], details={}, service_index=0)
-        await callback.message.answer(
-            f'Выбрана платформа: <b>{SOCIALS[social_key]["name"]}</b>\nТеперь выберите услуги (можно несколько):',
-            reply_markup=services_keyboard(set(), social_key)
-        )
+
+        if social_key in SPECIAL_PLATFORMS:
+            # Редактируем текущее сообщение, не удаляя
+            await callback.message.edit_text(
+                f'Выбрана платформа: <b>{SOCIALS[social_key]["name"]}</b>\nТеперь выберите услуги (можно несколько):',
+                reply_markup=services_keyboard(set(), social_key)
+            )
+        else:
+            # Старое поведение для остальных соцсетей (может приводить к ошибке)
+            await callback.message.delete()
+            await callback.message.answer(
+                f'Выбрана платформа: <b>{SOCIALS[social_key]["name"]}</b>\nТеперь выберите услуги (можно несколько):',
+                reply_markup=services_keyboard(set(), social_key)
+            )
         await state.set_state(Form.services)
 
     @dp.callback_query(F.data.startswith('toggle_'))
@@ -196,13 +207,23 @@ async def main():
         if not selected:
             await callback.answer('Выберите хотя бы одну услугу!', show_alert=True)
             return
-        await callback.message.delete()
-        social = SOCIALS[data['social']]
+
+        social_key = data.get('social')
+        social = SOCIALS[social_key]
         quantitative = [s for s in selected if s in social['quantitative']]
         cost = [s for s in selected if s not in social['quantitative']]
         await state.update_data(has_cost=bool(cost), has_quantitative=bool(quantitative),
                                 quantitative=quantitative, cost=cost, details={})
-        await callback.message.answer('Вы выбрали услуги. Сейчас зададим уточняющие вопросы.')
+
+        SPECIAL_PLATFORMS = ['vk', 'telegram', 'yandex_direct', 'google_ads']
+        if social_key in SPECIAL_PLATFORMS:
+            # Для этих платформ редактируем текущее сообщение
+            await callback.message.edit_text('Вы выбрали услуги. Сейчас зададим уточняющие вопросы.')
+        else:
+            # Старое поведение
+            await callback.message.delete()
+            await callback.message.answer('Вы выбрали услуги. Сейчас зададим уточняющие вопросы.')
+
         await process_next_service(callback.message.chat.id, bot, state)
 
     async def process_next_service(chat_id: int, bot: Bot, state: FSMContext):
@@ -288,6 +309,7 @@ async def main():
                 await message.answer('Произошла ошибка. Нажмите /start')
                 return
             text = format_order(data, message.text.strip(), message.from_user)
+            # Отправка заявки в группу
             await bot.send_message(GROUP_ID, text)
             await message.answer(
                 '✅ Спасибо! Ваша заявка отправлена.\nМы уже составляем предложение ⚡️\nХотите рассчитать ещё? Нажмите кнопку ниже.',
