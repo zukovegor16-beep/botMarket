@@ -150,13 +150,18 @@ async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
 
-    # Установка кнопки "Жми 👈 для просмотра услуг"
     await bot.set_my_commands([
         BotCommand(command="start", description="Жми 👈 для просмотра услуг")
     ], scope=BotCommandScopeDefault())
 
-    # Сбрасываем вебхук и непрочитанные обновления
-    await bot.delete_webhook(drop_pending_updates=True)
+    # Принудительно сбрасываем вебхук несколько раз с паузой
+    for _ in range(3):
+        try:
+            await bot.delete_webhook(drop_pending_updates=True)
+            break
+        except Exception:
+            await asyncio.sleep(2)
+    await asyncio.sleep(1)  # дополнительная пауза для гарантии
 
     @dp.message(Command('start'))
     async def cmd_start(message: types.Message, state: FSMContext):
@@ -287,13 +292,12 @@ async def main():
         await callback.message.edit_text('Введите вашу сферу деятельности (например, "мебель"):')
         await state.set_state(Form.business)
 
-    # --- Сфера (финальный шаг) ---
+    # --- Сфера ---
     @dp.message(Form.business)
     async def process_business(message: types.Message, state: FSMContext):
         data = await state.get_data()
         text = format_order(data, message.text.strip(), message.from_user)
         await bot.send_message(GROUP_ID, text)
-        # Отправляем сообщение с кнопкой "Новый расчёт" и сбрасываем состояние
         await message.answer(
             '✅ Спасибо! Ваша заявка отправлена.\nМы уже составляем предложение ⚡️\nХотите рассчитать ещё? Нажмите кнопку ниже.',
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -312,7 +316,7 @@ async def main():
         )
         await state.set_state(Form.social)
 
-    # --- Обработчик для любых других сообщений (чтобы не застревать) ---
+    # --- Обработчик для любых других сообщений ---
     @dp.message()
     async def fallback(message: types.Message, state: FSMContext):
         current_state = await state.get_state()
@@ -343,7 +347,7 @@ async def main():
         text += f'Сфера: {business}\n'
         return text
 
-    # --- Веб-сервер для Render ---
+    # --- Веб-сервер ---
     app = web.Application()
     async def health(request):
         return web.Response(text="OK")
@@ -356,11 +360,16 @@ async def main():
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
-    try:
-        await dp.start_polling(bot)
-    except Exception as e:
-        logging.error(f"Polling stopped: {e}")
-        sys.exit(1)
+    # Запуск polling с автоматическим восстановлением
+    while True:
+        try:
+            await dp.start_polling(bot, handle_signals=False)
+        except Exception as e:
+            logging.error(f"Polling error: {e}")
+            if "Conflict" in str(e):
+                await asyncio.sleep(10)
+            else:
+                await asyncio.sleep(5)
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
