@@ -165,7 +165,6 @@ async def main():
         )
         await state.set_state(Form.social)
 
-    # Платформы, для которых удаляем старое сообщение и отправляем новое
     DELETE_AND_RESEND = {'vk', 'telegram', 'yandex_direct', 'google_ads'}
 
     @dp.callback_query(F.data.startswith('social_'))
@@ -173,19 +172,21 @@ async def main():
         social_key = callback.data.split('_')[1]
         await state.update_data(social=social_key, selected_services=[], details={}, service_index=0)
 
+        # Сохраняем chat_id до возможного удаления сообщения
+        chat_id = callback.message.chat.id
+
         if social_key in DELETE_AND_RESEND:
-            # Удаляем (с защитой) и отправляем новое сообщение
             try:
                 await callback.message.delete()
             except Exception:
                 pass
+            # Отправляем новое сообщение, используя сохранённый chat_id
             await bot.send_message(
-                chat_id=callback.message.chat.id,
+                chat_id=chat_id,
                 text=f'Выбрана платформа: <b>{SOCIALS[social_key]["name"]}</b>\nТеперь выберите услуги (можно несколько):',
                 reply_markup=services_keyboard(set(), social_key)
             )
         else:
-            # Для остальных — редактируем текущее сообщение
             await callback.message.edit_text(
                 f'Выбрана платформа: <b>{SOCIALS[social_key]["name"]}</b>\nТеперь выберите услуги (можно несколько):',
                 reply_markup=services_keyboard(set(), social_key)
@@ -220,19 +221,21 @@ async def main():
                                 quantitative=quantitative, cost=cost, details={})
 
         social_key = data['social']
+        chat_id = callback.message.chat.id  # сохраняем до удаления
+
         if social_key in DELETE_AND_RESEND:
             try:
                 await callback.message.delete()
             except Exception:
                 pass
             await bot.send_message(
-                chat_id=callback.message.chat.id,
+                chat_id=chat_id,
                 text='Вы выбрали услуги. Сейчас зададим уточняющие вопросы.'
             )
         else:
             await callback.message.edit_text('Вы выбрали услуги. Сейчас зададим уточняющие вопросы.')
 
-        await process_next_service(callback.message.chat.id, bot, state)
+        await process_next_service(chat_id, bot, state)  # передаём chat_id
 
     async def process_next_service(chat_id: int, bot: Bot, state: FSMContext):
         data = await state.get_data()
