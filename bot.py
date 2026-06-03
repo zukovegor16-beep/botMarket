@@ -195,34 +195,56 @@ async def main():
         if not selected:
             await callback.answer('Выберите хотя бы одну услугу!', show_alert=True)
             return
+        # Определяем типы услуг
+        social = SOCIALS[data['social']]
+        quantitative = [s for s in selected if s in social['quantitative']]
+        cost = [s for s in selected if s not in social['quantitative']]
+        await state.update_data(has_cost=bool(cost), has_quantitative=bool(quantitative),
+                                quantitative=quantitative, cost=cost, details={})
         await callback.message.edit_text('Вы выбрали услуги. Сейчас зададим уточняющие вопросы.')
+        # Начинаем обработку услуг: сначала количественные, потом стоимостные
         await process_next_service(callback.message.chat.id, bot, state)
 
     async def process_next_service(chat_id: int, bot: Bot, state: FSMContext):
         data = await state.get_data()
-        services = data['selected_services']
+        quantitative = data.get('quantitative', [])
+        cost = data.get('cost', [])
         index = data.get('service_index', 0)
-        if index >= len(services):
-            await bot.send_message(chat_id, 'Выберите подходящий бюджет:', reply_markup=budget_keyboard())
-            await state.set_state(Form.budget)
-            return
-        service = services[index]
-        await state.update_data(current_service=service)
-        if service in SOCIALS[data['social']]['quantitative']:
+
+        # Сначала обрабатываем количественные услуги
+        if index < len(quantitative):
+            service = quantitative[index]
+            await state.update_data(current_service=service, current_type='quantitative')
             await bot.send_message(chat_id, f'Уточните: <b>{service}</b>\nВведите ссылку (или описание):')
             await state.set_state(Form.await_link)
-        else:
+            return
+
+        # Затем стоимостные
+        cost_index = index - len(quantitative)
+        if cost_index < len(cost):
+            service = cost[cost_index]
+            await state.update_data(current_service=service, current_type='cost')
             await bot.send_message(chat_id, f'Опишите подробнее: <b>{service}</b>')
             await state.set_state(Form.await_description)
+            return
 
-    # --- Сбор ссылки ---
+        # Все услуги обработаны – проверяем, нужен ли бюджет
+        if data.get('has_cost'):
+            await bot.send_message(chat_id, 'Выберите подходящий бюджет:', reply_markup=budget_keyboard())
+            await state.set_state(Form.budget)
+        else:
+            # Бюджет не нужен – сразу сфера деятельности
+            await bot.send_message(chat_id, 'Введите вашу сферу деятельности (например, "мебель"):')
+            await state.set_state(Form.business)
+
+    # --- Сбор ссылки (для количественных услуг) ---
     @dp.message(Form.await_link)
     async def process_link(message: types.Message, state: FSMContext):
         await state.update_data(temp_link=message.text.strip())
         await message.answer('Выберите тип:', reply_markup=boost_types_keyboard())
         await state.set_state(Form.await_type)
 
-    # --- Выбор типа ---
+    # --- Выбор типа накрутки ---
     @dp.callback_query(F.data.startswith('boost_'), Form.await_type)
     async def process_type(callback: types.CallbackQuery, state: FSMContext):
         await state.update_data(temp_type=callback.data.replace('boost_', ''))
@@ -245,26 +267,30 @@ async def main():
             'type': data['temp_type'],
             'quantity': qty
         })
-        await state.update_data(details=details, service_index=data['service_index'] + 1)
+        # Увеличиваем индекс услуги
+        new_index = data['service_index'] + 1
+        await state.update_data(details=details, service_index=new_index)
         await process_next_service(message.chat.id, bot, state)
 
-    # --- Описание ---
+    # --- Описание для стоимостной услуги ---
     @dp.message(Form.await_description)
     async def process_description(message: types.Message, state: FSMContext):
         data = await state.get_data()
         details = data.get('details', {})
-        details[data['current_service']] = message.text.strip()
-        await state.update_data(details=details, service_index=data['service_index'] + 1)
+        service = data['current_service']
+        details[service] = message.text.strip()
+        new_index = data['service_index'] + 1
+        await state.update_data(details=details, service_index=new_index)
         await process_next_service(message.chat.id, bot, state)
 
-    # --- Бюджет ---
+    # --- Бюджет (только если есть стоимостные услуги) ---
     @dp.callback_query(F.data.startswith('budget_'), Form.budget)
     async def process_budget(callback: types.CallbackQuery, state: FSMContext):
         await state.update_data(budget=callback.data.replace('budget_', ''))
         await callback.message.edit_text('Введите вашу сферу деятельности (например, "мебель"):')
         await state.set_state(Form.business)
 
-    # --- Сфера ---
+    # --- Сфера деятельности ---
     @dp.message(Form.business)
     async def process_business(message: types.Message, state: FSMContext):
         data = await state.get_data()
@@ -280,7 +306,7 @@ async def main():
         )
         await state.clear()
 
-    # Обработчик кнопки "Новый расчёт"
+    # --- Кнопка "Новый расчёт" ---
     @dp.callback_query(F.data == "restart")
     async def restart(callback: types.CallbackQuery, state: FSMContext):
         await state.clear()
@@ -292,7 +318,8 @@ async def main():
 
     def format_order(data: dict, business: str, user: types.User) -> str:
         social = SOCIALS[data['social']]['name']
-        services = ', '.join(data['selected_services'])
+        all_selected = data.get('quantitative', []) + data.get('cost', [])
+        services = ', '.join(all_selected)
         details = data.get('details', {})
         budget = data.get('budget', 'не указан')
         text = f'📩 <b>Новая заявка</b>\n'
@@ -305,10 +332,12 @@ async def main():
                     text += f'    🔗 {d["link"]} | {d["type"]} x {d["quantity"]}\n'
             else:
                 text += f'  — <b>{srv}</b>: {det}\n'
-        text += f'Бюджет: {budget}\nСфера: {business}\n'
+        if data.get('has_cost'):
+            text += f'Бюджет: {budget}\n'
+        text += f'Сфера: {business}\n'
         return text
 
-    # --- Веб-сервер (стабилизирован) ---
+    # --- Веб-сервер для стабильности на Render ---
     app = web.Application()
     async def health(request):
         return web.Response(text="OK")
@@ -321,7 +350,7 @@ async def main():
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
-    # Автоматический перезапуск polling при обрыве
+    # Автоматический перезапуск polling
     while True:
         try:
             await dp.start_polling(bot)
