@@ -288,7 +288,6 @@ async def main():
                 await message.answer('Произошла ошибка. Нажмите /start')
                 return
             text = format_order(data, message.text.strip(), message.from_user)
-            # Отправка заявки в группу
             await bot.send_message(GROUP_ID, text)
             await message.answer(
                 '✅ Спасибо! Ваша заявка отправлена.\nМы уже составляем предложение ⚡️\nХотите рассчитать ещё? Нажмите кнопку ниже.',
