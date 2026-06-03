@@ -149,12 +149,12 @@ async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
 
-    # Установка команд бота (кнопка "Старт" в меню)
+    # Установка кнопки "Жми 👈 для просмотра услуг"
     await bot.set_my_commands([
         BotCommand(command="start", description="Жми 👈 для просмотра услуг")
     ], scope=BotCommandScopeDefault())
 
-    # Сбрасываем вебхук и непрочитанные обновления, чтобы избежать конфликтов
+    # Сбрасываем вебхук и непрочитанные обновления для предотвращения конфликта
     await bot.delete_webhook(drop_pending_updates=True)
 
     @dp.message(Command('start'))
@@ -333,7 +333,7 @@ async def main():
         text += f'Сфера: {business}\n'
         return text
 
-    # --- Веб-сервер ---
+    # --- Веб-сервер для стабильности на Render ---
     app = web.Application()
     async def health(request):
         return web.Response(text="OK")
@@ -346,7 +346,7 @@ async def main():
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
-    # Запуск поллинга (один раз, без бесконечного цикла)
+    # Запуск polling – один раз, без бесконечного цикла
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
