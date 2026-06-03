@@ -5,14 +5,14 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand, BotCommandScopeDefault
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiohttp import web
 
 # ---------- НАСТРОЙКИ ----------
 BOT_TOKEN = '8835701146:AAEbcx3j76Udnek14zMBwd7QFUfuveBnX4I'
-CHANNEL_ID = -1004274610789
+GROUP_ID = -5160270721
 
 SOCIALS = {
     'vk': {
@@ -149,6 +149,10 @@ async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
 
+    await bot.set_my_commands([
+        BotCommand(command="start", description="Жми 👈 для просмотра услуг")
+    ], scope=BotCommandScopeDefault())
+
     @dp.message(Command('start'))
     async def cmd_start(message: types.Message, state: FSMContext):
         await state.clear()
@@ -191,7 +195,6 @@ async def main():
         if not selected:
             await callback.answer('Выберите хотя бы одну услугу!', show_alert=True)
             return
-        # Редактируем текущее сообщение, убирая кнопки
         await callback.message.edit_text('Вы выбрали услуги. Сейчас зададим уточняющие вопросы.')
         await process_next_service(callback.message.chat.id, bot, state)
 
@@ -266,9 +269,26 @@ async def main():
     async def process_business(message: types.Message, state: FSMContext):
         data = await state.get_data()
         text = format_order(data, message.text.strip(), message.from_user)
-        await bot.send_message(CHANNEL_ID, text)
-        await message.answer('✅ Спасибо! Ваша заявка отправлена. Мы свяжемся с вами в ближайшее время.')
+        await bot.send_message(GROUP_ID, text)
+        await message.answer(
+            '<tg-emoji emoji-id="5427009714745517609">✅</tg-emoji> Спасибо! Ваша заявка отправлена.\n'
+            'Мы уже составляем предложение <tg-emoji emoji-id="5431449001532594346">⚡️</tg-emoji>\n'
+            'Хотите рассчитать ещё? Нажмите кнопку ниже.',
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔄 Новый расчёт", callback_data="restart")]
+            ])
+        )
         await state.clear()
+
+    # Обработчик кнопки "Новый расчёт"
+    @dp.callback_query(F.data == "restart")
+    async def restart(callback: types.CallbackQuery, state: FSMContext):
+        await state.clear()
+        await callback.message.edit_text(
+            '👋 Давай рассчитаем цену под тебя!\n\nВыберите соцсеть или платформу:',
+            reply_markup=socials_keyboard()
+        )
+        await state.set_state(Form.social)
 
     def format_order(data: dict, business: str, user: types.User) -> str:
         social = SOCIALS[data['social']]['name']
@@ -288,18 +308,26 @@ async def main():
         text += f'Бюджет: {budget}\nСфера: {business}\n'
         return text
 
-    # --- Веб-сервер для Render ---
+    # --- Веб-сервер (стабилизирован) ---
     app = web.Application()
     async def health(request):
         return web.Response(text="OK")
     app.router.add_get('/', health)
+    app.router.add_get('/ping', health)
+
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.environ.get("PORT", 8080))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
-    await dp.start_polling(bot)
+    # Автоматический перезапуск polling при обрыве
+    while True:
+        try:
+            await dp.start_polling(bot)
+        except Exception as e:
+            logging.error(f"Polling error: {e}")
+            await asyncio.sleep(5)
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
