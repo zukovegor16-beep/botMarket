@@ -17,11 +17,13 @@ GROUP_ID = -1004274610789
 SOCIALS = {
     'vk': {
         'name': 'ВКонтакте',
-        'services': ['Настройка таргетированной рекламы', 'Продвижение сообщества',
+        'services': [
+            'Настройка таргетированной рекламы', 'Продвижение сообщества',
             'Продвижение + ведение сообщества', 'Разработка мини-приложения ВК',
             'Разработка чат-бота ВК', 'Рассылка сообщений (холодным)',
             'Рассылка сообщений (подписчикам)', 'Накрутка (все типы)',
-            'Продажа аккаунтов/сообществ', 'Иная услуга'],
+            'Продажа аккаунтов/сообществ', 'Иная услуга'
+        ],
         'quantitative': ['Накрутка (все типы)', 'Продажа аккаунтов/сообществ',
                          'Рассылка сообщений (холодным)', 'Рассылка сообщений (подписчикам)']
     },
@@ -163,16 +165,16 @@ async def main():
         )
         await state.set_state(Form.social)
 
-    # Список платформ, для которых используем удаление + новое сообщение
-    DELETE_AND_RESEND_PLATFORMS = {'vk', 'telegram', 'yandex_direct', 'google_ads'}
+    # Платформы, для которых удаляем старое сообщение и отправляем новое
+    DELETE_AND_RESEND = {'vk', 'telegram', 'yandex_direct', 'google_ads'}
 
     @dp.callback_query(F.data.startswith('social_'))
     async def process_social(callback: types.CallbackQuery, state: FSMContext):
         social_key = callback.data.split('_')[1]
         await state.update_data(social=social_key, selected_services=[], details={}, service_index=0)
 
-        if social_key in DELETE_AND_RESEND_PLATFORMS:
-            # Удаляем и отправляем новое (с защитой)
+        if social_key in DELETE_AND_RESEND:
+            # Удаляем (с защитой) и отправляем новое сообщение
             try:
                 await callback.message.delete()
             except Exception:
@@ -183,7 +185,7 @@ async def main():
                 reply_markup=services_keyboard(set(), social_key)
             )
         else:
-            # Для остальных — редактируем
+            # Для остальных — редактируем текущее сообщение
             await callback.message.edit_text(
                 f'Выбрана платформа: <b>{SOCIALS[social_key]["name"]}</b>\nТеперь выберите услуги (можно несколько):',
                 reply_markup=services_keyboard(set(), social_key)
@@ -218,7 +220,7 @@ async def main():
                                 quantitative=quantitative, cost=cost, details={})
 
         social_key = data['social']
-        if social_key in DELETE_AND_RESEND_PLATFORMS:
+        if social_key in DELETE_AND_RESEND:
             try:
                 await callback.message.delete()
             except Exception:
