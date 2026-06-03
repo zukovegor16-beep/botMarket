@@ -165,9 +165,21 @@ async def main():
         )
         await state.set_state(Form.social)
 
-    # --- Выбор соцсети ---
+    # --- Универсальный обработчик соцсетей (без фильтра состояния) ---
     @dp.callback_query(F.data.startswith('social_'))
     async def process_social(callback: types.CallbackQuery, state: FSMContext):
+        # Проверяем, есть ли активное состояние
+        current_state = await state.get_state()
+        if current_state != Form.social:
+            # Если состояние не social, начинаем заново
+            await state.clear()
+            await callback.message.edit_text(
+                'Сессия устарела. Начинаем заново.\n\nВыберите соцсеть или платформу:',
+                reply_markup=socials_keyboard()
+            )
+            await state.set_state(Form.social)
+            return
+
         social_key = callback.data.split('_')[1]
         await state.update_data(social=social_key, selected_services=[], details={}, service_index=0)
         await callback.message.edit_text(
@@ -176,10 +188,13 @@ async def main():
         )
         await state.set_state(Form.services)
 
-    # --- Переключение услуг ---
+    # --- Переключение услуг (без фильтра) ---
     @dp.callback_query(F.data.startswith('toggle_'))
     async def toggle_service(callback: types.CallbackQuery, state: FSMContext):
         data = await state.get_data()
+        if 'social' not in data:
+            await callback.answer('Сессия устарела. Нажмите /start')
+            return
         service_name = callback.data.replace('toggle_', '')
         selected = set(data.get('selected_services', []))
         if service_name in selected:
@@ -194,6 +209,9 @@ async def main():
     @dp.callback_query(F.data == 'services_done')
     async def services_done(callback: types.CallbackQuery, state: FSMContext):
         data = await state.get_data()
+        if 'social' not in data:
+            await callback.answer('Сессия устарела. Нажмите /start')
+            return
         selected = data.get('selected_services', [])
         if not selected:
             await callback.answer('Выберите хотя бы одну услугу!', show_alert=True)
@@ -285,23 +303,29 @@ async def main():
         await callback.message.edit_text('Введите вашу сферу деятельности (например, "мебель"):')
         await state.set_state(Form.business)
 
-    # --- Сфера (финальный шаг) ---
-    @dp.message(Form.business)
-    async def process_business(message: types.Message, state: FSMContext):
-        data = await state.get_data()
-        if not data:
-            await message.answer('Произошла ошибка. Пожалуйста, нажмите /start для нового расчёта.')
+    # --- Сфера (обработчик без фильтра состояния для надёжности) ---
+    @dp.message(F.text)
+    async def handle_text(message: types.Message, state: FSMContext):
+        current_state = await state.get_state()
+        if current_state == Form.business:
+            data = await state.get_data()
+            if not data:
+                await message.answer('Произошла ошибка. Пожалуйста, нажмите /start для нового расчёта.')
+                await state.clear()
+                return
+            text = format_order(data, message.text.strip(), message.from_user)
+            await bot.send_message(GROUP_ID, text)
+            await message.answer(
+                '✅ Спасибо! Ваша заявка отправлена.\nМы уже составляем предложение ⚡️\nХотите рассчитать ещё? Нажмите кнопку ниже.',
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔄 Новый расчёт", callback_data="restart")]
+                ])
+            )
             await state.clear()
-            return
-        text = format_order(data, message.text.strip(), message.from_user)
-        await bot.send_message(GROUP_ID, text)
-        await message.answer(
-            '✅ Спасибо! Ваша заявка отправлена.\nМы уже составляем предложение ⚡️\nХотите рассчитать ещё? Нажмите кнопку ниже.',
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔄 Новый расчёт", callback_data="restart")]
-            ])
-        )
-        await state.clear()
+        elif current_state is None:
+            await message.answer('Чтобы начать расчёт, нажмите /start')
+        else:
+            await message.answer('Пожалуйста, следуйте инструкциям. Для нового расчёта нажмите /start')
 
     # --- Кнопка "Новый расчёт" ---
     @dp.callback_query(F.data == "restart")
@@ -347,7 +371,6 @@ async def main():
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
-    # Запуск polling
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
