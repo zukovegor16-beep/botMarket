@@ -10,9 +10,9 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiohttp import web
 
-# ---------- НАСТРОЙКИ (совпадают с Mini App) ----------
+# ---------- НАСТРОЙКИ ----------
 BOT_TOKEN = '8835701146:AAEbcx3j76Udnek14zMBwd7QFUfuveBnX4I'
-GROUP_ID = -1004274610789  # ОТРИЦАТЕЛЬНЫЙ ID ГРУППЫ
+GROUP_ID = -1004274610789
 
 SOCIALS = {
     'vk': {
@@ -153,7 +153,6 @@ async def main():
         BotCommand(command="start", description="Жми 👈 для просмотра услуг")
     ], scope=BotCommandScopeDefault())
 
-    # Сброс вебхука и ожидание для гарантии чистой сессии
     await bot.delete_webhook(drop_pending_updates=True)
     await asyncio.sleep(1)
 
@@ -166,12 +165,13 @@ async def main():
         )
         await state.set_state(Form.social)
 
-    # --- Выбор соцсети ---
+    # --- Выбор соцсети (удаляем предыдущее сообщение) ---
     @dp.callback_query(F.data.startswith('social_'))
     async def process_social(callback: types.CallbackQuery, state: FSMContext):
+        await callback.message.delete()
         social_key = callback.data.split('_')[1]
         await state.update_data(social=social_key, selected_services=[], details={}, service_index=0)
-        await callback.message.edit_text(
+        await callback.message.answer(
             f'Выбрана платформа: <b>{SOCIALS[social_key]["name"]}</b>\nТеперь выберите услуги (можно несколько):',
             reply_markup=services_keyboard(set(), social_key)
         )
@@ -199,12 +199,13 @@ async def main():
         if not selected:
             await callback.answer('Выберите хотя бы одну услугу!', show_alert=True)
             return
+        await callback.message.delete()
         social = SOCIALS[data['social']]
         quantitative = [s for s in selected if s in social['quantitative']]
         cost = [s for s in selected if s not in social['quantitative']]
         await state.update_data(has_cost=bool(cost), has_quantitative=bool(quantitative),
                                 quantitative=quantitative, cost=cost, details={})
-        await callback.message.edit_text('Вы выбрали услуги. Сейчас зададим уточняющие вопросы.')
+        await callback.message.answer('Вы выбрали услуги. Сейчас зададим уточняющие вопросы.')
         await process_next_service(callback.message.chat.id, bot, state)
 
     async def process_next_service(chat_id: int, bot: Bot, state: FSMContext):
@@ -286,7 +287,7 @@ async def main():
         await callback.message.edit_text('Введите вашу сферу деятельности (например, "мебель"):')
         await state.set_state(Form.business)
 
-    # --- Сфера (отправка заявки) ---
+    # --- Сфера ---
     @dp.message(F.text)
     async def handle_text(message: types.Message, state: FSMContext):
         current_state = await state.get_state()
@@ -296,18 +297,14 @@ async def main():
                 await message.answer('Произошла ошибка. Нажмите /start')
                 return
             text = format_order(data, message.text.strip(), message.from_user)
-            try:
-                await bot.send_message(GROUP_ID, text)
-                await message.answer(
-                    '✅ Спасибо! Ваша заявка отправлена.\nМы уже составляем предложение ⚡️\nХотите рассчитать ещё? Нажмите кнопку ниже.',
-                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="🔄 Новый расчёт", callback_data="restart")]
-                    ])
-                )
-            except Exception as e:
-                await message.answer(f'Ошибка при отправке заявки: {e}')
-            finally:
-                await state.clear()
+            await bot.send_message(GROUP_ID, text)
+            await message.answer(
+                '✅ Спасибо! Ваша заявка отправлена.\nМы уже составляем предложение ⚡️\nХотите рассчитать ещё? Нажмите кнопку ниже.',
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔄 Новый расчёт", callback_data="restart")]
+                ])
+            )
+            await state.clear()
         elif current_state is None:
             await message.answer('Нажмите /start, чтобы начать.')
         else:
@@ -344,7 +341,7 @@ async def main():
         text += f'Сфера: {business}\n'
         return text
 
-    # --- Веб-сервер (для Render) ---
+    # --- Веб-сервер ---
     app = web.Application()
     async def health(request):
         return web.Response(text="OK")
