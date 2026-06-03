@@ -165,7 +165,6 @@ async def main():
         )
         await state.set_state(Form.social)
 
-    # --- Выбор соцсети (удаляем предыдущее сообщение) ---
     @dp.callback_query(F.data.startswith('social_'))
     async def process_social(callback: types.CallbackQuery, state: FSMContext):
         await callback.message.delete()
@@ -177,7 +176,6 @@ async def main():
         )
         await state.set_state(Form.services)
 
-    # --- Переключение услуг ---
     @dp.callback_query(F.data.startswith('toggle_'))
     async def toggle_service(callback: types.CallbackQuery, state: FSMContext):
         data = await state.get_data()
@@ -191,7 +189,6 @@ async def main():
         social_key = data.get('social')
         await callback.message.edit_reply_markup(reply_markup=services_keyboard(selected, social_key))
 
-    # --- Завершение выбора услуг ---
     @dp.callback_query(F.data == 'services_done')
     async def services_done(callback: types.CallbackQuery, state: FSMContext):
         data = await state.get_data()
@@ -236,21 +233,18 @@ async def main():
             await bot.send_message(chat_id, 'Введите вашу сферу деятельности (например, "мебель"):')
             await state.set_state(Form.business)
 
-    # --- Сбор ссылки ---
     @dp.message(Form.await_link)
     async def process_link(message: types.Message, state: FSMContext):
         await state.update_data(temp_link=message.text.strip())
         await message.answer('Выберите тип:', reply_markup=boost_types_keyboard())
         await state.set_state(Form.await_type)
 
-    # --- Выбор типа ---
     @dp.callback_query(F.data.startswith('boost_'))
     async def process_type(callback: types.CallbackQuery, state: FSMContext):
         await state.update_data(temp_type=callback.data.replace('boost_', ''))
         await callback.message.edit_text('Введите количество:')
         await state.set_state(Form.await_quantity)
 
-    # --- Количество ---
     @dp.message(Form.await_quantity)
     async def process_quantity(message: types.Message, state: FSMContext):
         try:
@@ -270,7 +264,6 @@ async def main():
         await state.update_data(details=details, service_index=new_index)
         await process_next_service(message.chat.id, bot, state)
 
-    # --- Описание ---
     @dp.message(Form.await_description)
     async def process_description(message: types.Message, state: FSMContext):
         data = await state.get_data()
@@ -280,14 +273,12 @@ async def main():
         await state.update_data(details=details, service_index=new_index)
         await process_next_service(message.chat.id, bot, state)
 
-    # --- Бюджет ---
     @dp.callback_query(F.data.startswith('budget_'))
     async def process_budget(callback: types.CallbackQuery, state: FSMContext):
         await state.update_data(budget=callback.data.replace('budget_', ''))
         await callback.message.edit_text('Введите вашу сферу деятельности (например, "мебель"):')
         await state.set_state(Form.business)
 
-    # --- Сфера ---
     @dp.message(F.text)
     async def handle_text(message: types.Message, state: FSMContext):
         current_state = await state.get_state()
@@ -297,6 +288,7 @@ async def main():
                 await message.answer('Произошла ошибка. Нажмите /start')
                 return
             text = format_order(data, message.text.strip(), message.from_user)
+            # Отправка заявки в группу
             await bot.send_message(GROUP_ID, text)
             await message.answer(
                 '✅ Спасибо! Ваша заявка отправлена.\nМы уже составляем предложение ⚡️\nХотите рассчитать ещё? Нажмите кнопку ниже.',
@@ -310,7 +302,6 @@ async def main():
         else:
             await message.answer('Следуйте инструкциям. Для нового расчёта нажмите /start')
 
-    # --- Кнопка "Новый расчёт" ---
     @dp.callback_query(F.data == "restart")
     async def restart(callback: types.CallbackQuery, state: FSMContext):
         await state.clear()
