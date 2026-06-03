@@ -154,14 +154,9 @@ async def main():
         BotCommand(command="start", description="Жми 👈 для просмотра услуг")
     ], scope=BotCommandScopeDefault())
 
-    # Принудительно сбрасываем вебхук несколько раз с паузой
-    for _ in range(3):
-        try:
-            await bot.delete_webhook(drop_pending_updates=True)
-            break
-        except Exception:
-            await asyncio.sleep(2)
-    await asyncio.sleep(1)  # дополнительная пауза для гарантии
+    # Надёжный сброс вебхука
+    await bot.delete_webhook(drop_pending_updates=True)
+    await asyncio.sleep(1)
 
     @dp.message(Command('start'))
     async def cmd_start(message: types.Message, state: FSMContext):
@@ -292,10 +287,14 @@ async def main():
         await callback.message.edit_text('Введите вашу сферу деятельности (например, "мебель"):')
         await state.set_state(Form.business)
 
-    # --- Сфера ---
+    # --- Сфера (финальный шаг) ---
     @dp.message(Form.business)
     async def process_business(message: types.Message, state: FSMContext):
         data = await state.get_data()
+        if not data:
+            await message.answer('Произошла ошибка. Пожалуйста, нажмите /start для нового расчёта.')
+            await state.clear()
+            return
         text = format_order(data, message.text.strip(), message.from_user)
         await bot.send_message(GROUP_ID, text)
         await message.answer(
@@ -315,16 +314,6 @@ async def main():
             reply_markup=socials_keyboard()
         )
         await state.set_state(Form.social)
-
-    # --- Обработчик для любых других сообщений ---
-    @dp.message()
-    async def fallback(message: types.Message, state: FSMContext):
-        current_state = await state.get_state()
-        if current_state is None:
-            await message.answer('Нажмите /start, чтобы начать расчёт.')
-        else:
-            await message.answer('Пожалуйста, следуйте инструкциям. Для нового расчёта нажмите /start.')
-            await state.clear()
 
     def format_order(data: dict, business: str, user: types.User) -> str:
         social = SOCIALS[data['social']]['name']
@@ -360,16 +349,13 @@ async def main():
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
-    # Запуск polling с автоматическим восстановлением
+    # Запуск polling с восстановлением
     while True:
         try:
-            await dp.start_polling(bot, handle_signals=False)
+            await dp.start_polling(bot)
         except Exception as e:
             logging.error(f"Polling error: {e}")
-            if "Conflict" in str(e):
-                await asyncio.sleep(10)
-            else:
-                await asyncio.sleep(5)
+            await asyncio.sleep(5)
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
