@@ -10,9 +10,9 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiohttp import web
 
-# ---------- НАСТРОЙКИ ----------
+# ---------- НАСТРОЙКИ (совпадают с Mini App) ----------
 BOT_TOKEN = '8835701146:AAEbcx3j76Udnek14zMBwd7QFUfuveBnX4I'
-GROUP_ID = -5160270721
+GROUP_ID = -5160270721  # ОТРИЦАТЕЛЬНЫЙ ID ГРУППЫ
 
 SOCIALS = {
     'vk': {
@@ -153,6 +153,7 @@ async def main():
         BotCommand(command="start", description="Жми 👈 для просмотра услуг")
     ], scope=BotCommandScopeDefault())
 
+    # Сброс вебхука и ожидание для гарантии чистой сессии
     await bot.delete_webhook(drop_pending_updates=True)
     await asyncio.sleep(1)
 
@@ -165,21 +166,9 @@ async def main():
         )
         await state.set_state(Form.social)
 
-    # --- Универсальный обработчик соцсетей (без фильтра состояния) ---
+    # --- Выбор соцсети ---
     @dp.callback_query(F.data.startswith('social_'))
     async def process_social(callback: types.CallbackQuery, state: FSMContext):
-        # Проверяем, есть ли активное состояние
-        current_state = await state.get_state()
-        if current_state != Form.social:
-            # Если состояние не social, начинаем заново
-            await state.clear()
-            await callback.message.edit_text(
-                'Сессия устарела. Начинаем заново.\n\nВыберите соцсеть или платформу:',
-                reply_markup=socials_keyboard()
-            )
-            await state.set_state(Form.social)
-            return
-
         social_key = callback.data.split('_')[1]
         await state.update_data(social=social_key, selected_services=[], details={}, service_index=0)
         await callback.message.edit_text(
@@ -188,13 +177,10 @@ async def main():
         )
         await state.set_state(Form.services)
 
-    # --- Переключение услуг (без фильтра) ---
+    # --- Переключение услуг ---
     @dp.callback_query(F.data.startswith('toggle_'))
     async def toggle_service(callback: types.CallbackQuery, state: FSMContext):
         data = await state.get_data()
-        if 'social' not in data:
-            await callback.answer('Сессия устарела. Нажмите /start')
-            return
         service_name = callback.data.replace('toggle_', '')
         selected = set(data.get('selected_services', []))
         if service_name in selected:
@@ -209,9 +195,6 @@ async def main():
     @dp.callback_query(F.data == 'services_done')
     async def services_done(callback: types.CallbackQuery, state: FSMContext):
         data = await state.get_data()
-        if 'social' not in data:
-            await callback.answer('Сессия устарела. Нажмите /start')
-            return
         selected = data.get('selected_services', [])
         if not selected:
             await callback.answer('Выберите хотя бы одну услугу!', show_alert=True)
@@ -303,29 +286,32 @@ async def main():
         await callback.message.edit_text('Введите вашу сферу деятельности (например, "мебель"):')
         await state.set_state(Form.business)
 
-    # --- Сфера (обработчик без фильтра состояния для надёжности) ---
+    # --- Сфера (отправка заявки) ---
     @dp.message(F.text)
     async def handle_text(message: types.Message, state: FSMContext):
         current_state = await state.get_state()
         if current_state == Form.business:
             data = await state.get_data()
             if not data:
-                await message.answer('Произошла ошибка. Пожалуйста, нажмите /start для нового расчёта.')
-                await state.clear()
+                await message.answer('Произошла ошибка. Нажмите /start')
                 return
             text = format_order(data, message.text.strip(), message.from_user)
-            await bot.send_message(GROUP_ID, text)
-            await message.answer(
-                '✅ Спасибо! Ваша заявка отправлена.\nМы уже составляем предложение ⚡️\nХотите рассчитать ещё? Нажмите кнопку ниже.',
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🔄 Новый расчёт", callback_data="restart")]
-                ])
-            )
-            await state.clear()
+            try:
+                await bot.send_message(GROUP_ID, text)
+                await message.answer(
+                    '✅ Спасибо! Ваша заявка отправлена.\nМы уже составляем предложение ⚡️\nХотите рассчитать ещё? Нажмите кнопку ниже.',
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🔄 Новый расчёт", callback_data="restart")]
+                    ])
+                )
+            except Exception as e:
+                await message.answer(f'Ошибка при отправке заявки: {e}')
+            finally:
+                await state.clear()
         elif current_state is None:
-            await message.answer('Чтобы начать расчёт, нажмите /start')
+            await message.answer('Нажмите /start, чтобы начать.')
         else:
-            await message.answer('Пожалуйста, следуйте инструкциям. Для нового расчёта нажмите /start')
+            await message.answer('Следуйте инструкциям. Для нового расчёта нажмите /start')
 
     # --- Кнопка "Новый расчёт" ---
     @dp.callback_query(F.data == "restart")
@@ -358,7 +344,7 @@ async def main():
         text += f'Сфера: {business}\n'
         return text
 
-    # --- Веб-сервер ---
+    # --- Веб-сервер (для Render) ---
     app = web.Application()
     async def health(request):
         return web.Response(text="OK")
