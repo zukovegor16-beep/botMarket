@@ -165,15 +165,17 @@ async def main():
         )
         await state.set_state(Form.social)
 
-    # Единый обработчик для ВСЕХ соцсетей (как TikTok)
     @dp.callback_query(F.data.startswith('social_'))
     async def process_social(callback: types.CallbackQuery, state: FSMContext):
         social_key = callback.data.split('_')[1]
         await state.update_data(social=social_key, selected_services=[], details={}, service_index=0)
 
-        # Удаляем сообщение с кнопками соцсетей
-        await callback.message.delete()
-        # Отправляем новое сообщение с выбором услуг (гарантированно появится)
+        # Безопасно удаляем сообщение (если не получится – не страшно)
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+
         await bot.send_message(
             chat_id=callback.message.chat.id,
             text=f'Выбрана платформа: <b>{SOCIALS[social_key]["name"]}</b>\nТеперь выберите услуги (можно несколько):',
@@ -208,9 +210,11 @@ async def main():
         await state.update_data(has_cost=bool(cost), has_quantitative=bool(quantitative),
                                 quantitative=quantitative, cost=cost, details={})
 
-        # Удаляем сообщение со списком услуг (как в TikTok)
-        await callback.message.delete()
-        # Отправляем подтверждение и запускаем вопросы
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+
         await bot.send_message(
             chat_id=callback.message.chat.id,
             text='Вы выбрали услуги. Сейчас зададим уточняющие вопросы.'
